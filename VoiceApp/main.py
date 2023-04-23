@@ -50,6 +50,7 @@ class CExtractVoiceProperties:
         self.debug       = None
         self.debug2      = 0
         self.speech_queue = []
+        self.stream_results = ""
 
     def clear(self):
         self.speech_queue = []
@@ -59,6 +60,7 @@ class CExtractVoiceProperties:
         self.stream_start_time = 0
         self.debug = None
         self.debug2 = 0
+        self.stream_results = ""
 
 
 STREAM_SLEEP_TIME_IN_SECONDS = 10
@@ -78,6 +80,7 @@ def schedule_job():
     for i in range(len(extractVoiceProperties.speech_queue)):
         speech = np.concatenate((speech, extractVoiceProperties.speech_queue[i]))
 
+    speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
     print(f"speech = {len(speech)}")
     extractVoiceProperties.speech_queue = []
 
@@ -88,10 +91,11 @@ def schedule_job():
     speech =  utilities.convert_to_16sr_file(full_path, full_path)
 
     text, lang = whisperHandler.Get_Whisper_Text(extractVoiceProperties.whisper_model, speech)
-    print (f"lang = {lang}")
+    #print (f"lang = {lang}")
     output_stream_img = None
 
-    output_stream_text = text
+    extractVoiceProperties.stream_results = extractVoiceProperties.stream_results + "\n" + text
+    output_stream_text = extractVoiceProperties.stream_results
     return output_stream_text, output_stream_img
 
 
@@ -230,8 +234,7 @@ def handle_streaming(audio, state=""):
 
     rate  = audio[0]
     voice = audio[1]
-    voice = np.int16(voice / np.max(np.abs(voice)) * 32767)
-
+    #voice = np.int16(voice / np.max(np.abs(voice)) * 32767)
     extractVoiceProperties.speech_queue.append(voice)
     # if (extractVoiceProperties.stream_iter%20) == 0: # 10 seconds
     #     print("POP")
