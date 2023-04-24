@@ -126,7 +126,7 @@ def schedule_whisper_job():
     global extractVoiceProperties
 
     if  len(extractVoiceProperties.speech_queue) < 10:
-        return None
+        return None, None
 
     speech = np.array([])
     for i in range(len(extractVoiceProperties.speech_queue)):
@@ -146,7 +146,15 @@ def schedule_whisper_job():
 
     extractVoiceProperties.stream_results = extractVoiceProperties.stream_results + "\n" + text
     output_stream_text = extractVoiceProperties.stream_results
-    return output_stream_text
+
+    if lang == "he":
+        detect_lang = "Detect Language: Hebrew"
+    elif lang == "en":
+        detect_lang = "Detect Language: English"
+    else:
+        detect_lang = f"Detect Language: {lang}"
+
+    return detect_lang, output_stream_text
 
 
 
@@ -296,17 +304,13 @@ def create_vad_plot(vad_results,  start_plot_time, current_length):
 
 def handle_streaming(audio):
 
+    global extractVoiceProperties
+
     rate  = audio[0]
     voice = audio[1]
     extractVoiceProperties.speech_queue.append(voice)
     extractVoiceProperties.vad_queue.append(voice)
 
-    diff_time = 0
-    if extractVoiceProperties.debug is None:
-        extractVoiceProperties.debug = time.time()
-    else:
-        current_time = time.time()
-        diff_time    = current_time - extractVoiceProperties.debug
 
 
 def set_running_option(value):
@@ -316,6 +320,52 @@ def set_running_option(value):
     else:
         extractVoiceProperties.run_online = False
 
+
+
+def create_new_gui():
+    with gr.Blocks(theme=gr.themes.Glass()) as demo:
+
+
+        with gr.Tab("Real Time"):
+            stream_input       = gr.Audio(source="microphone")
+            output_stream_lang = gr.Label("Detect Lanugage: ")
+            output_stream_text = gr.Text()
+            output_stream_plt  = gr.Plot()
+
+        with gr.Tab("Offline"):
+            radio_run_type = gr.Radio(["Run Diariation Model",
+                                       "Load Last Diarizarion Results"],
+                                      value="Load Last Diarizarion Results",
+                                      label="Choose how to run diarization")
+
+            audioUpload = gr.Audio(source="upload", type="filepath")
+
+            audioRecord = gr.Audio(source="microphone", type="filepath")
+            audioShowFileButton = gr.Button("Show Save File")
+            audioShowFileText = gr.Textbox()
+
+
+            audioProcessRecButton = gr.Button("Process")
+
+
+            output_diarization_text = gr.outputs.HTML(label="")
+            output_diarization_img = gr.Plot()
+            audioProcessRecButton.click(fn=handle_wav_file, inputs=audioRecord,
+                                        outputs=[output_diarization_text, output_diarization_img])
+
+            None
+
+        with gr.Tab("About"):
+            gr.Label("Version 1")
+
+        stream_input.stream(fn      = handle_streaming,
+                            inputs  = [stream_input],
+                            outputs = [])
+
+        demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=5)
+        demo.load(schedule_vad_job, None, [output_stream_plt], every=0.5)
+
+    return demo
 
 def create_gui():
 
@@ -340,9 +390,9 @@ def create_gui():
 
         with gr.Tab("Diarization Output"):
             with gr.Row():
-                output_text = gr.outputs.HTML(label="")
+                output_diarization_text  = gr.outputs.HTML(label="")
             with gr.Row():
-                output_img = gr.Plot()
+                output_diarization_img   = gr.Plot()
 
         with gr.Tab("Streaming Output"):
             with gr.Row():
@@ -354,8 +404,8 @@ def create_gui():
             gr.Label("Version 1")
 
         radio_run_type.change(set_running_option, radio_run_type, [])
-        audioProcessButton.click(fn=handle_wav_file, inputs=audioUpload, outputs=[output_text, output_img])
-        audioProcessRecButton.click(fn=handle_wav_file, inputs=audioRecord, outputs=[output_text, output_img])
+        audioProcessButton.click(fn=handle_wav_file, inputs=audioUpload, outputs=[output_diarization_text, output_diarization_img])
+        audioProcessRecButton.click(fn=handle_wav_file, inputs=audioRecord, outputs=[output_diarization_text, output_diarization_img])
         stream_input.stream(fn=handle_streaming,
                             inputs=[stream_input],
                             outputs=[])
@@ -363,8 +413,8 @@ def create_gui():
         # -- 2 jobs:
         #    one job for whisper
         #    on job for VAD
-        #demo.load(schedule_whisper_job, None, [output_stream_text], every=5)
-        demo.load(schedule_vad_job, None, [output_stream_plt], every=0.5)
+        demo.load(schedule_whisper_job, None, [output_stream_text], every=5)
+        demo.load(schedule_vad_job, None, [output_stream_plt], every=1)
 
 
 
@@ -376,6 +426,7 @@ def create_gui():
 if __name__ == "__main__":
 
     utilities.save_huggingface_token()
-    demo = create_gui()
+    #demo = create_gui()
+    demo = create_new_gui()
     demo.queue().launch()
     #demo.queue().launch(share=True, debug=False)

@@ -10,7 +10,8 @@ def Get_Whisper_Text(whisper_model, audio):
 
     # decode the audio
     # options = whisper.DecodingOptions(language = 'he', beam_size=8, fp16 = False)
-    options = whisper.DecodingOptions(language='en', beam_size=5, fp16=False)
+    #options = whisper.DecodingOptions(language='en', beam_size=5, fp16=False)
+    options = whisper.DecodingOptions(beam_size=5, fp16=False)
     result = whisper.decode(whisper_model, mel, options)
     lang = result.language
     text = result.text
