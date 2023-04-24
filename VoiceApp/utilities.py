@@ -13,6 +13,16 @@ def get_wav_duration(wav_file):
     return f.frames / f.samplerate
 
 
+def save_last_30_sec(source_wav, dest_wav):
+
+    speech, sr = librosa.load(source_wav, sr=16000)
+    if 30 * 16000 > len(speech):
+        sf.write(dest_wav, speech, sr)
+    else:
+        start_index = len(speech) - 30*16000
+        speech = speech[start_index:]
+        sf.write(dest_wav, speech, sr)
+
 def convert_to_16sr_file(source_path, dest_path):
     speech, sr = librosa.load(source_path, sr=16000)
     sf.write(dest_path, speech, sr)
