@@ -5,7 +5,7 @@ import pandas as pd
 import utilities
 import whisperHandler
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 import gradio as gr
@@ -69,7 +69,8 @@ STREAM_SLEEP_TIME_IN_SECONDS = 10
 MICROPHONE_SAMPLE_RATE = 48000
 SAMPLE_RATE = 16000
 extractVoiceProperties = CExtractVoiceProperties()
-SAVE_RESULTS_PATH = "/home/amitli/Downloads"
+#SAVE_RESULTS_PATH = "/home/amitli/Downloads"
+SAVE_RESULTS_PATH = os.getcwd()
 
 
 
@@ -100,7 +101,7 @@ def schedule_vad_job():
         extractVoiceProperties.vad_queue = extractVoiceProperties.vad_queue[-LAST_30_SEC_IN_Q:]
 
 
-    full_path = f"/home/amitli/Downloads/last_vad.wav"
+    full_path = f"{SAVE_RESULTS_PATH}/last_vad.wav"
     from scipy.io.wavfile import write
     write(full_path, 48000, speech)
 
@@ -139,7 +140,7 @@ def schedule_whisper_job():
     speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
     extractVoiceProperties.speech_queue = []
 
-    full_path = f"/home/amitli/Downloads/last_whisper.wav"
+    full_path = f"{SAVE_RESULTS_PATH}/last_whisper.wav"
     from scipy.io.wavfile import write
     write(full_path, 48000, speech)
 
@@ -244,7 +245,7 @@ def myBinary(prob, onset):
     return prob
 
 def get_vad_plot_from_diarization(wav_file):
-   
+
 
     return None
 
