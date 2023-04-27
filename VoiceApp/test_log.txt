@@ -1,0 +1,33 @@
+root@6137395fbb03:/workspace/Amitli/VoiceApp# python SimpleTest.py
+Start test (2023-04-27 21:15:58.620856)
+Device = cuda:0
+Save HF Token (2023-04-27 21:15:58.620953)
+Load Whisper model (2023-04-27 21:15:58.621210)
+
+
+Init WHisper  (2023-04-27 21:17:11.059847)
+FInsih Init WHisper (2023-04-27 21:17:34.667874)
+
+
+Run Whisper (2023-04-27 21:17:34.667930)
+Whisper Finished (2023-04-27 21:17:36.697605)
+Run Whisper (2023-04-27 21:17:36.697863)
+Whisper Finished (2023-04-27 21:17:38.714961)
+שלום ילדים וילדות, אני איריס הרגמן, אני שופרת ילדים ועובדת בתוכנית קריי.
+Load pyyanote model (2023-04-27 21:17:38.715018)
+
+Init PyAnnote        (2023-04-27 21:17:48.032793)
+FInsih Init PyAnnote (2023-04-27 21:18:04.162134)
+
+
+Run Diarization pipeline      (2023-04-27 21:18:04.162172)
+Diarization pipeline Finished (2023-04-27 21:18:08.505050)
+
+
+Run Diarization pipeline      (2023-04-27 21:18:08.505091)
+Diarization pipeline Finished (2023-04-27 21:18:08.984002)
+
+
+
+Finish test (2023-04-27 21:18:08.984039)
+root@6137395fbb03:/workspace/Amitli/VoiceApp#
