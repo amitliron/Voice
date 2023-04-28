@@ -16,6 +16,7 @@ import torch
 import librosa
 import pickle
 
+from fastapi                           import FastAPI
 from tqdm                              import tqdm
 from huggingface_hub.hf_api            import HfFolder
 from pyannote.audio                    import Pipeline
@@ -25,6 +26,14 @@ from datetime                          import datetime
 import matplotlib.pyplot               as plt
 import plotly.express                  as px
 
+
+CUSTOM_PATH = "/gradio"
+app = FastAPI()
+
+
+@app.get("/")
+def read_main():
+    return {"message": "This is your main app ----->"}
 
 
 class CExtractVoiceProperties:
@@ -129,7 +138,7 @@ def schedule_vad_job():
     LAST_30_SEC_IN_Q = 60
     LAST_30_SEC_IN_SAMPLES = 30 * SAMPLE_RATE
 
-    print (f"VAD {datetime.now()}, Q = {len(extractVoiceProperties.vad_queue)}")
+    #print (f"VAD {datetime.now()}, Q = {len(extractVoiceProperties.vad_queue)}")
 
     # get last 30 seconds speech
     speech = np.array([])
@@ -449,9 +458,34 @@ def create_new_gui():
 
 
 
+
 if __name__ == "__main__":
+
 
     utilities.save_huggingface_token()
     demo = create_new_gui()
-    #demo.queue().launch()
-    demo.queue().launch(share=True, debug=False)
+    #demo.queue().launch(share=False, debug=False, server_name="0.0.0.0")
+
+    #  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes
+
+    demo.queue().launch(share=False,
+                        debug=False,
+                        server_name="0.0.0.0",
+                        server_port=8432,
+                        ssl_verify=False,
+                        ssl_certfile="cert.pem",
+                        ssl_keyfile="key.pem")
+
+    # demo.queue().launch(server_name="0.0.0.0",
+    #                     ssl_certfile="/home/amitli/Repo/Voice/VoiceApp/cert.pem",
+    #                     ssl_keyfile="/home/amitli/Repo/Voice/VoiceApp/key.pem")
+    #demo.queue().launch(share=True, debug=False)
+
+    # #demo.queue().launch(share=True, debug=False, ssl_keyfile=f"{os.getcwd()}/1.tmp", ssl_certfile="cert.pem")
+    # #demo.launch(share=False, ssl_keyfile="key.pem", ssl_certfile="cert.pem")
+    #
+    #
+    # app = gr.mount_gradio_app(app, demo, path=CUSTOM_PATH)
+    # # uvicorn run:app
+    # print("finished")
+
