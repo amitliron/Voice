@@ -15,6 +15,7 @@ import whisper
 import torch
 import librosa
 import pickle
+import queue
 
 from fastapi                           import FastAPI
 from tqdm                              import tqdm
@@ -23,18 +24,13 @@ from pyannote.audio                    import Pipeline
 from pyannote.core                     import notebook
 from datetime                          import datetime
 
+
 import matplotlib.pyplot               as plt
 import plotly.express                  as px
+import datetime                        as dt
 
 
-CUSTOM_PATH = "/gradio"
-app = FastAPI()
-
-
-@app.get("/")
-def read_main():
-    return {"message": "This is your main app ----->"}
-
+DEBUG = True
 
 class CExtractVoiceProperties:
 
@@ -42,8 +38,9 @@ class CExtractVoiceProperties:
         self.file_path     = None
         self.DEVICE        = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"Device = {self.DEVICE}")
-        self.whisper_model = whisper.load_model("large", device=self.DEVICE)
-        self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
+        if DEBUG is False:
+            self.whisper_model = whisper.load_model("base", device=self.DEVICE)
+            self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
 
         self.vad_model, vad_utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                                                         model='silero_vad',
@@ -55,21 +52,27 @@ class CExtractVoiceProperties:
          self.VADIterator,
          self.vad_collect_chunks) = vad_utils
 
+        self.vad_iterator = self.VADIterator(self.vad_model)
+
         self.stream_iter = 0
         self.diarization_text_result = ""
         self.run_online = True
         self.stream_start_time = 0
-        self.speech_queue = []
-        self.vad_queue = []
+        self.speech_queue = queue.Queue()
+        self.vad_queue = queue.Queue()
+        self.last_30_sec_vad = None
         self.stream_results = ""
         self.last_lang = ""
         self.last_text = ""
         self.last_vad_plot = None
-        self.init()
+        if DEBUG is False:
+            self.init()
 
     def clear(self):
-        self.speech_queue = []
-        self.vad_queue = []
+        self.speech_queue = queue.Queue()
+        self.vad_queue = queue.Queue()
+        self.vad_iterator.reset_states()
+        self.last_30_sec_vad = None
         self.file_path = None
         self.diarization_text_result = ""
         self.stream_iter = 0
@@ -135,47 +138,73 @@ def schedule_vad_job2():
 def schedule_vad_job():
     global extractVoiceProperties
 
-    LAST_30_SEC_IN_Q = 60
-    LAST_30_SEC_IN_SAMPLES = 30 * SAMPLE_RATE
-
-    #print (f"VAD {datetime.now()}, Q = {len(extractVoiceProperties.vad_queue)}")
-
-    # get last 30 seconds speech
-    speech = np.array([])
-    q_len  = len(extractVoiceProperties.vad_queue)
-    if q_len <= 0:
+    #
+    #   if no new mic samples
+    #
+    vad_q_len = extractVoiceProperties.vad_queue.qsize()
+    if vad_q_len == 0:
         return extractVoiceProperties.last_vad_plot
 
-    for i in range(q_len):
-        speech = np.concatenate((speech, extractVoiceProperties.vad_queue[i]))
+    #
+    #   start first time vad with at least 5 seconds
+    #
+    diff_time = time.time() - extractVoiceProperties.stream_start_time
+    if diff_time < 5:
+        return extractVoiceProperties.last_vad_plot
+
+    #
+    #   collect samples (probably ~10 items for first time, and ~2 items for the others)
+    #
+    speech = np.array([])
+    for i in range(vad_q_len):
+        speech = np.concatenate((speech, extractVoiceProperties.vad_queue.get()))
     speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
 
-    if len(speech) > (30 * MICROPHONE_SAMPLE_RATE):
-        stream_iter = (len(speech) / MICROPHONE_SAMPLE_RATE) - 30
-        extractVoiceProperties.stream_iter = extractVoiceProperties.stream_iter + stream_iter
-        speech                           = speech[-MICROPHONE_SAMPLE_RATE * 30: ]
-        extractVoiceProperties.vad_queue = extractVoiceProperties.vad_queue[-LAST_30_SEC_IN_Q:]
+    #
+    # run VAD (for each half second)
+    #
+    arr_vad                          = []
+    NUMBER_OF_SAMPLES_IN_HALF_SECOND = int(SAMPLE_RATE / 2)
 
+    for i in range(0, len(speech), NUMBER_OF_SAMPLES_IN_HALF_SECOND):
+        chunk = speech[i: i + NUMBER_OF_SAMPLES_IN_HALF_SECOND]
+        chunk = torch.from_numpy(chunk)
+        chunk = chunk.float()
+        if len(chunk) < NUMBER_OF_SAMPLES_IN_HALF_SECOND:
+            break
+        speech_dict = extractVoiceProperties.vad_iterator(chunk, return_seconds=True)
+        if speech_dict:
+            None
+        speech_prob = extractVoiceProperties.vad_model(chunk, MICROPHONE_SAMPLE_RATE).item()
+        arr_vad.append(speech_prob)
 
-    full_path = f"{SAVE_RESULTS_PATH}/last_vad.wav"
-    from scipy.io.wavfile import write
-    write(full_path, MICROPHONE_SAMPLE_RATE, speech)
+    #
+    # add results to last results (and save only last 30 seconds -> last 60 VAD probabilties
+    #
+    if extractVoiceProperties.last_30_sec_vad is None:
+        extractVoiceProperties.last_30_sec_vad = arr_vad
+    else:
+        extractVoiceProperties.last_30_sec_vad   = extractVoiceProperties.last_30_sec_vad + arr_vad
+        NUMBER_OF_VAD_PROBABILTIES_IN_30_SECONDS = 60
+        if len(extractVoiceProperties.last_30_sec_vad) > NUMBER_OF_VAD_PROBABILTIES_IN_30_SECONDS:
+            start_offset = len(extractVoiceProperties.last_30_sec_vad) - NUMBER_OF_VAD_PROBABILTIES_IN_30_SECONDS
+            extractVoiceProperties.last_30_sec_vad = extractVoiceProperties.last_30_sec_vad[start_offset:]
 
-    utilities.convert_to_16sr_file(full_path, full_path)
-    current_length = utilities.get_wav_duration(full_path)
+    #
+    #   create plot
+    #
+    x_time     = np.arange(start=0, stop=len(extractVoiceProperties.last_30_sec_vad)/2, step=0.5) # /2 -> half second
+    df         = pd.DataFrame()
+    df['time'] = x_time
+    df['vad']  = extractVoiceProperties.last_30_sec_vad
+    fig        = px.line(df, x = "time", y="vad", title='silero-vad')
+    extractVoiceProperties.last_vad_plot = fig
 
-    tensor_speech     = extractVoiceProperties.vad_read_audio(full_path, sampling_rate=SAMPLE_RATE)
-    speech_timestamps = extractVoiceProperties.vad_get_speech_timestamps(tensor_speech,
-                                                                         extractVoiceProperties.vad_model,
-                                                                         sampling_rate=SAMPLE_RATE)
+    #
+    #   return vad (30 seconds) figure
+    #
+    return fig
 
-    vad_plot = create_vad_plot(vad_results     = speech_timestamps,
-                               start_plot_time = extractVoiceProperties.stream_iter,
-                               current_length  = current_length
-                               )
-    extractVoiceProperties.last_vad_plot = vad_plot
-
-    return vad_plot
 #
 
 def schedule_whisper_job():
@@ -410,8 +439,11 @@ def handle_streaming(audio):
 
     rate  = audio[0]
     voice = audio[1]
-    extractVoiceProperties.speech_queue.append(voice)
-    extractVoiceProperties.vad_queue.append(voice)
+    extractVoiceProperties.vad_queue.put(voice)
+    if extractVoiceProperties.stream_start_time == 0:
+        print("First time start recording")
+        extractVoiceProperties.stream_start_time = time.time()
+
 
 
 
@@ -452,7 +484,7 @@ def create_new_gui():
                             inputs  = [stream_input],
                             outputs = [])
 
-        demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=5)
+        #demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=5)
         demo.load(schedule_vad_job, None, [output_stream_plt], every=1)
     return demo
 
@@ -464,28 +496,14 @@ if __name__ == "__main__":
 
     utilities.save_huggingface_token()
     demo = create_new_gui()
-    #demo.queue().launch(share=False, debug=False, server_name="0.0.0.0")
+    demo.queue().launch(share=False, debug=False)
 
     #  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes
 
-    demo.queue().launch(share=False,
-                        debug=False,
-                        server_name="0.0.0.0",
-                        server_port=8432,
-                        ssl_verify=False,
-                        ssl_certfile="cert.pem",
-                        ssl_keyfile="key.pem")
-
-    # demo.queue().launch(server_name="0.0.0.0",
-    #                     ssl_certfile="/home/amitli/Repo/Voice/VoiceApp/cert.pem",
-    #                     ssl_keyfile="/home/amitli/Repo/Voice/VoiceApp/key.pem")
-    #demo.queue().launch(share=True, debug=False)
-
-    # #demo.queue().launch(share=True, debug=False, ssl_keyfile=f"{os.getcwd()}/1.tmp", ssl_certfile="cert.pem")
-    # #demo.launch(share=False, ssl_keyfile="key.pem", ssl_certfile="cert.pem")
-    #
-    #
-    # app = gr.mount_gradio_app(app, demo, path=CUSTOM_PATH)
-    # # uvicorn run:app
-    # print("finished")
-
+    # demo.queue().launch(share=False,
+    #                     debug=False,
+    #                     server_name="0.0.0.0",
+    #                     server_port=8432,
+    #                     ssl_verify=False,
+    #                     ssl_certfile="cert.pem",
+    #                     ssl_keyfile="key.pem")
