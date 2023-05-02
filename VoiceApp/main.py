@@ -7,8 +7,8 @@ import utilities
 import whisperHandler
 DEBUG = True
 
-if DEBUG is True:
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+#if DEBUG is True:
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import gradio as gr
 import numpy as np
@@ -41,10 +41,10 @@ class CExtractVoiceProperties:
         self.DEVICE        = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"Device = {self.DEVICE}")
         if DEBUG is False:
-            #self.whisper_model = whisper.load_model("large", device=self.DEVICE)
+            self.whisper_model = whisper.load_model("large", device=self.DEVICE)
             self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
         else:
-            #self.whisper_model = whisper.load_model("base", device=self.DEVICE)
+            self.whisper_model = whisper.load_model("tiny", device=self.DEVICE)
             self.sd_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
 
         self.vad_model, vad_utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
@@ -72,6 +72,10 @@ class CExtractVoiceProperties:
         self.vad_iterator = self.VADIterator(self.vad_model)
         self.MICROPHONE_SAMPLE_RATE       = None
         self.VAD_JOB_RATE                 = 0.5
+
+        self.settings_record_wav = False
+        self.settings_decoding_lang = []
+        self.settings_use_prompt = False
 
         self.stream_iter = 0
         self.diarization_text_result = ""
@@ -210,16 +214,20 @@ def schedule_preprocess_speech_job():
     #
     for val in speech_timestamps:
         start_sample = max(val['start']-1600,0)
-        end_sample   = val['end']
+        end_sample   = min(val['end'] + 1600, len(speech))
         if end_sample >= len(speech):
             break
-        extractVoiceProperties.processed_queue.put(speech[start_sample:end_sample].numpy())
+        tmp_speech = speech[start_sample:end_sample].numpy()
+        extractVoiceProperties.processed_queue.put(tmp_speech)
+        print(
+            f"Push speech to whisper Q, audio length: {round(len(tmp_speech) / 16000, 2)} seconds, |Q| = {extractVoiceProperties.processed_queue.qsize()}")
 
 
     #
     #   Step 6: save last unprcoess voice (when VAD end at the edge)
     #
-    if speech_timestamps[-1]["end"] >= len(speech):
+    end_with_threshold = min(val['end'] + 1600, len(speech))
+    if end_with_threshold>= len(speech):
         extractVoiceProperties.previous_speech = speech[speech_timestamps[-1]["start"] :].numpy()
 
 
@@ -340,56 +348,58 @@ def schedule_vad_job():
     #
     return fig
 
-#
+
+
+
+
+
+def convert_text_to_html(full_html, current_text, current_lang):
+    '''
+        style text results in html format
+    '''
+    if current_lang == "he" or current_lang == "ar":
+        current_line = f"<p style='text-align:right;'> {current_text} </p>"
+    else:
+        current_line = f"<p style='text-align:left;'> {current_text} </p>"
+
+    full_html = full_html + current_line + "\n"
+    return full_html
+
 
 def schedule_whisper_job():
     global extractVoiceProperties
 
-
+    #
+    #   Step 1: get current Q len (number of speech to decode with whisper)
+    #
     q_len = extractVoiceProperties.processed_queue.qsize()
+    if q_len == 0:
+        return extractVoiceProperties.last_lang, extractVoiceProperties.last_text
+
+    #
+    #   Step 2: for each speech -> decode with whisper
+    #
     for i in range(q_len):
         speech = extractVoiceProperties.processed_queue.get()
-        extractVoiceProperties.debug_param = extractVoiceProperties.debug_param + 1
-        full_path = f"/home/amitli/Downloads/Tests/{extractVoiceProperties.debug_param}.wav"
-        from scipy.io.wavfile import write
-        write(full_path, 16000, speech)
+
+        print(f"Send Rqeust to whisper, audio length: {round(len(speech)/16000, 2)} seconds, [|Q| = {extractVoiceProperties.processed_queue.qsize()}")
+        text, lang, no_speech_prob       = whisperHandler.Get_Whisper_Text(extractVoiceProperties.whisper_model, speech)
+        extractVoiceProperties.last_lang = lang
+        #extractVoiceProperties.last_text = extractVoiceProperties.last_text + "\n" + text
+        extractVoiceProperties.last_text = convert_text_to_html(extractVoiceProperties.last_text, text, lang)
+
+        print(f"Got Results from Whisper:\n\tText: {text}\n\tLanguage: {lang}\n\tno_speech_prob = {no_speech_prob}")
+
+        # extractVoiceProperties.debug_param = extractVoiceProperties.debug_param + 1
+        # full_path = f"/home/amitli/Downloads/Tests/{extractVoiceProperties.debug_param}.wav"
+        # from scipy.io.wavfile import write
+        # write(full_path, 16000, speech)
 
 
-
     #
-    #   for debug only
+    #   Step 3: return results
     #
-    # extractVoiceProperties.debug_param = extractVoiceProperties.debug_param + 1
-    # full_path = f"{os.getcwd()}/{extractVoiceProperties.debug_param}.wav"
-    # print(f"\nSave at: {full_path}")
-    # from scipy.io.wavfile import write
-    # write(full_path, extractVoiceProperties.MICROPHONE_SAMPLE_RATE, speech)
-
-    #
-    #   run whisper
-    #
-    # text, lang, no_speech_prob  = whisperHandler.Get_Whisper_From_Server(speech)
-    # #text, lang, no_speech_prob = whisperHandler.Get_Whisper_Text(extractVoiceProperties.whisper_model, speech)
-    # print(f"{datetime.now()}, no_speech_prob = {no_speech_prob}, lang = {lang}, text = {text}")
-
-    #
-    #  if no speech -> add "\n"
-    #
-    # if no_speech_prob < NO_SPEECH_PROBABILITY:
-    #     if extractVoiceProperties.last_speech_silence is False:
-    #         extractVoiceProperties.last_speech_silence = True
-    #         extractVoiceProperties.last_text           = extractVoiceProperties.last_text + "\n"
-    #     return extractVoiceProperties.last_lang, extractVoiceProperties.last_text
-
-    #
-    #  add the new whisper results
-    #
-    # extractVoiceProperties.last_speech_silence = False
-    # extractVoiceProperties.last_lang           = lang
-    # extractVoiceProperties.last_text           = extractVoiceProperties.last_text + "\n" + text
-    #
-    # return  extractVoiceProperties.last_lang , extractVoiceProperties.last_text
-    return "", ""
+    return  extractVoiceProperties.last_lang , extractVoiceProperties.last_text
 
 
 
@@ -577,7 +587,16 @@ def set_running_option(value):
     else:
         extractVoiceProperties.run_online = False
 
-
+def change_settings(settings_record_wav, settings_decoding_lang, settings_use_prompt):
+    print(f"Settings changed to: Reocrd Wav: {settings_record_wav}, Decoding Lang: {settings_decoding_lang}, Decoding Prompt:{settings_use_prompt}")
+    global extractVoiceProperties
+    extractVoiceProperties.settings_record_wav = settings_record_wav
+    extractVoiceProperties.settings_use_prompt = settings_use_prompt
+    extractVoiceProperties.settings_decoding_lang = []
+    if settings_decoding_lang == "Hebrew":
+        extractVoiceProperties.settings_decoding_lang = ["he"]
+    elif settings_decoding_lang == "English":
+        extractVoiceProperties.settings_decoding_lang = ["en"]
 
 def create_new_gui():
     with gr.Blocks(theme=gr.themes.Glass()) as demo:
@@ -586,7 +605,8 @@ def create_new_gui():
         with gr.Tab("Real Time"):
             stream_input       = gr.Audio(source="microphone")
             output_stream_lang = gr.Label(label = "Detect Lanugage: ")
-            output_stream_text = gr.Textbox(label = "Whisper Results:")
+            #output_stream_text = gr.Textbox(label = "Whisper Results:")
+            output_stream_text = gr.outputs.HTML(label="Whisper Results:")
             output_stream_plt  = gr.Plot(labal = "Voice Activity Detection:")
 
         with gr.Tab("Offline"):
@@ -599,6 +619,24 @@ def create_new_gui():
             #output_diarization_img = gr.Plot(label = "Diarization")
             audioProcessRecButton.click(fn=handle_wav_file, inputs=[audioRecord, audioUpload],
                                         outputs=[output_diarization_text])
+
+        with gr.Tab("Settings"):
+            settings_record_wav = gr.Checkbox(label="Record WAV", info="Record WAV files for debug")
+            settings_decoding_lang = gr.Dropdown(["None", "Hebrew", "English"], label="DecodingLanguage",
+                                                 info="Run Whisper with language decoding")
+            settings_use_prompt = gr.Checkbox(label="Use Whisper prompt", info="Run Whisper with prompt decoding")
+
+            settings_record_wav.change(change_settings, inputs=[settings_record_wav,
+                                                                settings_decoding_lang,
+                                                                settings_use_prompt], outputs=[])
+
+            settings_decoding_lang.change(change_settings, inputs=[settings_record_wav,
+                                                                   settings_decoding_lang,
+                                                                   settings_use_prompt], outputs=[])
+
+            settings_use_prompt.change(change_settings, inputs=[settings_record_wav,
+                                                                settings_decoding_lang,
+                                                                settings_use_prompt], outputs=[])
 
         with gr.Tab("About"):
             gr.Label("Version 1")
