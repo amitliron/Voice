@@ -25,4 +25,5 @@ def Get_Whisper_Text(whisper_model, audio):
     text            = result.text
     no_speech_prob  = result.no_speech_prob
 
-    return text, lang, no_speech_prob
+    #return text, lang, no_speech_prob
+    return f"test_{len(audio)}", "en", 0.7

@@ -25,6 +25,7 @@ from huggingface_hub.hf_api            import HfFolder
 from pyannote.audio                    import Pipeline
 from pyannote.core                     import notebook
 from datetime                          import datetime
+from recording_util                    import RecordingUtil
 
 
 import matplotlib.pyplot               as plt
@@ -77,6 +78,7 @@ class CExtractVoiceProperties:
         self.settings_decoding_lang = []
         self.settings_use_prompt = False
 
+        self.recordingUtil = RecordingUtil()
         self.stream_iter = 0
         self.diarization_text_result = ""
         self.run_online = True
@@ -91,7 +93,7 @@ class CExtractVoiceProperties:
         self.stream_results = ""
         self.last_speech_silence = False
         self.last_lang = ""
-        self.last_text = ""
+        self.last_text = []
         self.last_vad_plot = None
         self.debug_param   = 0
         if DEBUG is False:
@@ -114,7 +116,7 @@ class CExtractVoiceProperties:
         self.stream_start_time = 0
         self.stream_results = ""
         self.last_lang = ""
-        self.last_text = ""
+        self.last_text = []
         self.last_vad_plot = None
         self.debug_param = 0
 
@@ -357,12 +359,13 @@ def convert_text_to_html(full_html, current_text, current_lang):
     '''
         style text results in html format
     '''
-    if current_lang == "he" or current_lang == "ar":
-        current_line = f"<p style='text-align:right;'> {current_text} </p>"
-    else:
-        current_line = f"<p style='text-align:left;'> {current_text} </p>"
 
-    full_html = full_html + current_line + "\n"
+    if current_lang == "he" or current_lang == "ar":
+        current_line = f"<p style='text-align:right;'> {current_text} </p>" + "\n"
+    else:
+        current_line = f"<p style='text-align:left;'> {current_text} </p>"   + "\n"
+
+    full_html.append(current_line)
     return full_html
 
 
@@ -390,11 +393,8 @@ def schedule_whisper_job():
 
         print(f"Got Results from Whisper:\n\tText: {text}\n\tLanguage: {lang}\n\tno_speech_prob = {no_speech_prob}")
 
-        # extractVoiceProperties.debug_param = extractVoiceProperties.debug_param + 1
-        # full_path = f"/home/amitli/Downloads/Tests/{extractVoiceProperties.debug_param}.wav"
-        # from scipy.io.wavfile import write
-        # write(full_path, 16000, speech)
-
+        if extractVoiceProperties.settings_record_wav is True:
+            extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
 
     #
     #   Step 3: return results
