@@ -2,13 +2,26 @@ import whisper
 import numpy as np
 import datetime
 import requests
+import torch
+from scipy.io.wavfile import write
+import librosa
+
 
 def Get_Whisper_From_Server(audio):
-    # audio_data = {'wav': [str(i) for i in audio.tolist()]}
-    # live_url   = 'http://10.53.140.33:86/gradio_demo_live/'
-    # res        = requests.get(live_url, json=audio_data)
-    # return res.json()[0]
-    return "TODO", "heb", 0.5
+    audio_data = {'wav': [str(i) for i in audio.tolist()], 'languages': [None]}
+    live_url   = 'http://10.53.140.33:86/gradio_demo_live/'
+    res        = requests.get(live_url, json=audio_data)
+    if type(res) == requests.Response:
+        if 200 != res.status_code:
+            print(f"Error, Resonse: {res.status_code}")
+            #write("/home/amitli/Downloads/bla3.wav", 16000, audio)
+            return "Error", "heb", 0.5
+
+    res        =  res.json()[0]
+    language      = res['language']
+    text          = res["text"]
+    no_speech_prb = res["no_speech_prob"]
+    return text, language, no_speech_prb
 
 def Get_Whisper_Text(whisper_model, audio):
 
@@ -27,3 +40,15 @@ def Get_Whisper_Text(whisper_model, audio):
 
     #return text, lang, no_speech_prob
     return f"test_{len(audio)}", "en", 0.7
+
+
+if __name__ == "__main__":
+
+    y, sr = librosa.load("/home/amitli/Downloads/bla33.wav", sr=16000)
+    text, language, no_speech_prb = Get_Whisper_From_Server(y)
+    print(text)
+
+
+
+
+

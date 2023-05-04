@@ -42,7 +42,7 @@ class CExtractVoiceProperties:
         self.DEVICE        = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"Device = {self.DEVICE}")
         if DEBUG is False:
-            self.whisper_model = whisper.load_model("large", device=self.DEVICE)
+            #self.whisper_model = whisper.load_model("large", device=self.DEVICE)
             self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
         else:
             self.whisper_model = whisper.load_model("tiny", device=self.DEVICE)
@@ -82,10 +82,9 @@ class CExtractVoiceProperties:
         self.stream_iter = 0
         self.diarization_text_result = ""
         self.run_online = True
-        self.stream_start_time = 0
+
         self.speech_queue = queue.Queue()
         self.processed_queue = queue.Queue()
-        #self.debug_queue = queue.Queue()
         self.vad_queue = queue.Queue()
         self.previous_speech = None
         self.last_30_sec_vad = None
@@ -93,7 +92,8 @@ class CExtractVoiceProperties:
         self.stream_results = ""
         self.last_speech_silence = False
         self.last_lang = ""
-        self.last_text = []
+        self.all_texts = []
+        self.html_result = ""
         self.last_vad_plot = None
         self.debug_param   = 0
         if DEBUG is False:
@@ -106,17 +106,17 @@ class CExtractVoiceProperties:
         self.vad_queue = queue.Queue()
         self.vad_iterator.reset_states()
         self.processed_queue = queue.Queue()
-        #self.debug_queue = queue.Queue()
         self.previous_speech = None
+        self.html_result = ""
         self.last_30_sec_vad = None
         self.last_speech_silence = False
         self.file_path = None
         self.diarization_text_result = ""
         self.stream_iter = 0
-        self.stream_start_time = 0
+
         self.stream_results = ""
         self.last_lang = ""
-        self.last_text = []
+        self.all_texts = []
         self.last_vad_plot = None
         self.debug_param = 0
 
@@ -155,27 +155,6 @@ NO_SPEECH_PROBABILITY        = 0.6
 
 
 
-def reformat_freq(sr, y):
-    '''
-    Took it from: https://gradio.app/real-time-speech-recognition/
-    :param sr:
-    :param y:
-    :return:
-    '''
-    if sr not in (
-        48000,
-        16000,
-    ):  #  only supports 16k, (we convert 48k -> 16k)
-        raise ValueError("Unsupported rate", sr)
-    if sr == 48000:
-        y = (
-            ((y / max(np.max(y), 1)) * 32767)
-            .reshape((-1, 3))
-            .mean(axis=1)
-            .astype("int16")
-        )
-        sr = 16000
-    return sr, y
 
 def schedule_preprocess_speech_job():
 
@@ -188,9 +167,9 @@ def schedule_preprocess_speech_job():
     speech = np.array([])
     for i in range(q_len):
         speech = np.concatenate((speech, extractVoiceProperties.speech_queue.get()))
-    speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
-    new_sample_rate , speech = reformat_freq(extractVoiceProperties.MICROPHONE_SAMPLE_RATE, speech)
 
+    speech_16000 = librosa.resample(speech, orig_sr=extractVoiceProperties.MICROPHONE_SAMPLE_RATE, target_sr=16000)
+    speech = speech_16000
     #
     #   Step 2: check if we have older speech which we didn't finished to preocess
     #
@@ -249,20 +228,12 @@ def schedule_vad_job():
         return extractVoiceProperties.last_vad_plot
 
     #
-    #   start first time vad with at least 5 seconds
-    #
-    # diff_time = time.time() - extractVoiceProperties.stream_start_time
-    # if diff_time < 5:
-    #     return extractVoiceProperties.last_vad_plot
-
-    #
     #   collect samples (probably ~10 items for first time, and ~2 items for the others)
     #
     speech = np.array([])
     for i in range(vad_q_len):
         speech                                      = np.concatenate((speech, extractVoiceProperties.vad_queue.get()))
         extractVoiceProperties.total_num_of_vad_elm = extractVoiceProperties.total_num_of_vad_elm + 1
-    speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
 
     #
     # run VAD (for each half second)
@@ -308,42 +279,12 @@ def schedule_vad_job():
     vad_speech = (np.array(extractVoiceProperties.last_30_sec_vad) > 0.5)
     vad_speech = vad_speech.astype(int)
 
-    df         = pd.DataFrame()
-    df['time'] = x_time
-    df['vad']  = extractVoiceProperties.last_30_sec_vad
+    df           = pd.DataFrame()
+    df['time']   = x_time
+    df['vad']    = extractVoiceProperties.last_30_sec_vad
     df['speech'] = vad_speech
-
-    # arr_time   = df["time"].values
-    # vad_values = df["vad"].values
-    # condition_speech = (vad_values < 0.5).astype(int)
-    # condition_other = (vad_values >= 0.5).astype(int)
-    # arr_speech  = vad_values * condition_speech
-    # arr_speech[arr_speech == 0] = None
-    # arr_no_speech = vad_values * condition_other
-    # arr_no_speech[arr_no_speech == 0] = None
-    #
-    # fig = go.Figure()
-    # fig.add_trace(go.Scatter(x=arr_time, y=arr_speech))
-    # fig.add_trace(go.Scatter(x=arr_time, y=arr_no_speech))
-
-    fig        = px.line(df, x = "time", y="vad", title='silero-vad')
+    fig          = px.line(df, x = "time", y="vad", title='silero-vad')
     extractVoiceProperties.last_vad_plot = fig
-
-
-    #
-    #
-    #
-    # if extractVoiceProperties.total_num_of_vad_elm > 60:
-    #     speech = np.array([])
-    #     l = extractVoiceProperties.debug_queue.qsize()
-    #     for i in range(l):
-    #         speech = np.concatenate((speech, extractVoiceProperties.debug_queue.get()))
-    #     speech = np.int16(speech / np.max(np.abs(speech)) * 32767)
-    #     full_fill_name = f"/home/amitli/Downloads/amit.wav"
-    #     from scipy.io.wavfile import write
-    #     write(full_fill_name, extractVoiceProperties.MICROPHONE_SAMPLE_RATE, speech)
-    #     print("ok")
-
 
     #
     #   return vad (last 30 seconds) figure
@@ -361,13 +302,34 @@ def convert_text_to_html(full_html, current_text, current_lang):
     '''
 
     if current_lang == "he" or current_lang == "ar":
-        current_line = f"<p style='text-align:right;'> {current_text} </p>" + "\n"
+        current_line = f"<p style='text-align:right;'> {current_text} </p>"
     else:
-        current_line = f"<p style='text-align:left;'> {current_text} </p>"   + "\n"
+        current_line = f"<p style='text-align:left;'> {current_text} </p>"
 
     full_html.append(current_line)
     return full_html
 
+def build_html_table(all_results):
+
+    html_table = []
+    html_table.append("<table border='1'  align='center'>")
+    for text, lang in all_results:
+        if lang == "he":
+            html_table.append(f"<tr align='right'>")
+        else:
+            html_table.append(f"<tr align='left'>")
+        html_table.append(f"<td> {text}</td>")
+        html_table.append("</tr>")
+    html_table.append("</table>")
+
+    return html_table
+
+def add_new_whisper_results(all_results, text, lang, max_saved_results=20):
+
+    if len(all_results) >= max_saved_results:
+        del all_results[0]
+    all_results.append((text, lang))
+    return all_results
 
 def schedule_whisper_job():
     global extractVoiceProperties
@@ -376,30 +338,28 @@ def schedule_whisper_job():
     #   Step 1: get current Q len (number of speech to decode with whisper)
     #
     q_len = extractVoiceProperties.processed_queue.qsize()
-    if q_len == 0:
-        return extractVoiceProperties.last_lang, extractVoiceProperties.last_text
+    if q_len != 0:
 
-    #
-    #   Step 2: for each speech -> decode with whisper
-    #
-    for i in range(q_len):
-        speech = extractVoiceProperties.processed_queue.get()
+        #
+        #   Step 2: for each speech -> decode with whisper
+        #
+        for i in range(q_len):
+            speech = extractVoiceProperties.processed_queue.get()
 
-        print(f"Send Rqeust to whisper, audio length: {round(len(speech)/16000, 2)} seconds, [|Q| = {extractVoiceProperties.processed_queue.qsize()}")
-        text, lang, no_speech_prob       = whisperHandler.Get_Whisper_Text(extractVoiceProperties.whisper_model, speech)
-        extractVoiceProperties.last_lang = lang
-        #extractVoiceProperties.last_text = extractVoiceProperties.last_text + "\n" + text
-        extractVoiceProperties.last_text = convert_text_to_html(extractVoiceProperties.last_text, text, lang)
+            text, lang, no_speech_prob       = whisperHandler.Get_Whisper_From_Server(speech)
+            extractVoiceProperties.last_lang = lang
+            extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, text, lang)
+            print(f"Got Results from Whisper:\n\tText: {text}\n\tLanguage: {lang}\n\tno_speech_prob = {no_speech_prob}")
 
-        print(f"Got Results from Whisper:\n\tText: {text}\n\tLanguage: {lang}\n\tno_speech_prob = {no_speech_prob}")
-
-        if extractVoiceProperties.settings_record_wav is True:
-            extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
+            if extractVoiceProperties.settings_record_wav is True:
+                extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
 
     #
     #   Step 3: return results
     #
-    return  extractVoiceProperties.last_lang , extractVoiceProperties.last_text
+    html_text = build_html_table(extractVoiceProperties.all_texts)
+    html_text = ''.join(html_text)
+    return  extractVoiceProperties.last_lang , html_text
 
 
 
@@ -555,12 +515,25 @@ def handle_wav_file(audioRecord, audioUpload):
 
     return html_whisper_text
 
+
+def int2float(sound):
+    #
+    # took from:  https://github.com/snakers4/silero-vad/blob/master/examples/colab_record_example.ipynb
+    #
+    abs_max = np.abs(sound).max()
+    sound = sound.astype('float32')
+    if abs_max > 0:
+        sound *= 1/32768
+    sound = sound.squeeze()
+    return sound
+
 def handle_streaming(audio):
 
     global extractVoiceProperties
 
     rate  = audio[0]
     voice = audio[1]
+    voice = int2float(voice)
 
     if extractVoiceProperties.MICROPHONE_SAMPLE_RATE is None:
         print(f"MICROPHONE_SAMPLE_RATE = {rate}")
@@ -572,10 +545,6 @@ def handle_streaming(audio):
 
     extractVoiceProperties.vad_queue.put(voice)
     extractVoiceProperties.speech_queue.put(voice)
-
-    if extractVoiceProperties.stream_start_time == 0:
-        print("First time start recording")
-        extractVoiceProperties.stream_start_time = time.time()
 
 
 
@@ -598,9 +567,8 @@ def change_settings(settings_record_wav, settings_decoding_lang, settings_use_pr
     elif settings_decoding_lang == "English":
         extractVoiceProperties.settings_decoding_lang = ["en"]
 
-def create_new_gui():
+def create_gui():
     with gr.Blocks(theme=gr.themes.Glass()) as demo:
-
 
         with gr.Tab("Real Time"):
             stream_input       = gr.Audio(source="microphone")
@@ -672,7 +640,7 @@ def debug_only(num, input_sr=None):
 if __name__ == "__main__":
 
     utilities.save_huggingface_token()
-    demo = create_new_gui()
+    demo = create_gui()
     #demo.queue().launch(share=False, debug=False)
 
     #  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes
