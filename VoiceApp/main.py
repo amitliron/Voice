@@ -18,6 +18,7 @@ import torch
 import librosa
 import pickle
 import queue
+import html_utils
 
 from fastapi                           import FastAPI
 from tqdm                              import tqdm
@@ -45,7 +46,7 @@ class CExtractVoiceProperties:
             #self.whisper_model = whisper.load_model("large", device=self.DEVICE)
             self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
         else:
-            self.whisper_model = whisper.load_model("tiny", device=self.DEVICE)
+            #self.whisper_model = whisper.load_model("tiny", device=self.DEVICE)
             self.sd_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
 
         self.vad_model, vad_utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
@@ -175,6 +176,7 @@ def schedule_preprocess_speech_job():
     #
     if extractVoiceProperties.previous_speech is not None:
         speech = np.concatenate((extractVoiceProperties.previous_speech, speech))
+    extractVoiceProperties.previous_speech = None
 
     #
     #   Step 3: run vad
@@ -296,34 +298,6 @@ def schedule_vad_job():
 
 
 
-def convert_text_to_html(full_html, current_text, current_lang):
-    '''
-        style text results in html format
-    '''
-
-    if current_lang == "he" or current_lang == "ar":
-        current_line = f"<p style='text-align:right;'> {current_text} </p>"
-    else:
-        current_line = f"<p style='text-align:left;'> {current_text} </p>"
-
-    full_html.append(current_line)
-    return full_html
-
-def build_html_table(all_results):
-
-    html_table = []
-    html_table.append("<table border='1'  align='center'>")
-    for text, lang in all_results:
-        if lang == "he":
-            html_table.append(f"<tr align='right'>")
-        else:
-            html_table.append(f"<tr align='left'>")
-        html_table.append(f"<td> {text}</td>")
-        html_table.append("</tr>")
-    html_table.append("</table>")
-
-    return html_table
-
 def add_new_whisper_results(all_results, text, lang, max_saved_results=20):
 
     if len(all_results) >= max_saved_results:
@@ -357,7 +331,7 @@ def schedule_whisper_job():
     #
     #   Step 3: return results
     #
-    html_text = build_html_table(extractVoiceProperties.all_texts)
+    html_text = html_utils.build_html_table(extractVoiceProperties.all_texts)
     html_text = ''.join(html_text)
     return  extractVoiceProperties.last_lang , html_text
 
@@ -615,41 +589,40 @@ def create_gui():
 
         demo.load(schedule_vad_job, None, [output_stream_plt], every=extractVoiceProperties.VAD_JOB_RATE)
         demo.load(schedule_preprocess_speech_job, None, None, every=5)
-        demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=2)
+        demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=1)
 
         #set_running_option(False)
     return demo
 
 
 
-def debug_only(num, input_sr=None):
+def debug_results():
 
-    print(f"\n {num}:")
-    full_path = f"/home/amitli/Downloads/1/{num}.wav"
-    if input_sr is None:
-        speech, sr = librosa.load(full_path)
-    else:
-        speech, sr = librosa.load(full_path, sr=input_sr)
-    text, lang, no_speech_prob = whisperHandler.Get_Whisper_Text(extractVoiceProperties.whisper_model, speech)
-    print(f"sr = {sr}")
-    print(f"no_speech_prob = {no_speech_prob}")
-    print(f"lang = {lang}")
-    print(f"text = {text}")
+
+    #file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/3.wav"
+    file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/4.wav"
+    file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/11.wav"
+
+    y, sr = librosa.load(file, sr=16000)
+    print(f"len = {round(len(y)/16000, 2)}")
+    res = whisperHandler.Get_Whisper_From_Server(y)
+    print(res)
+
 
 
 if __name__ == "__main__":
-
+#    debug_results()
     utilities.save_huggingface_token()
     demo = create_gui()
-    #demo.queue().launch(share=False, debug=False)
+    demo.queue().launch(share=False, debug=False)
 
     #  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes
     #  https://10.53.140.33:8432/
 
-    demo.queue().launch(share=False,
-                        debug=False,
-                        server_name="0.0.0.0",
-                        server_port=8432,
-                        ssl_verify=False,
-                        ssl_certfile="cert.pem",
-                        ssl_keyfile="key.pem")
+    # demo.queue().launch(share=False,
+    #                     debug=False,
+    #                     server_name="0.0.0.0",
+    #                     server_port=8432,
+    #                     ssl_verify=False,
+    #                     ssl_certfile="cert.pem",
+    #                     ssl_keyfile="key.pem")
