@@ -15,9 +15,26 @@ def convert_text_to_html(full_html, current_text, current_lang):
 
 def build_html_table(all_results):
 
+    new_line   = False
     html_table = []
     html_table.append("<table border='1'  align='center'>")
-    for text, lang in all_results:
+
+    for i, (text, lang) in enumerate(all_results):
+
+        # -- first line -> start with text and not with new line
+        if (i == 0) and (text == "\n"):
+            continue
+
+        # --- if need to add new line
+        if (text == "\n"):
+            if new_line is True:
+                continue
+            else:
+                new_line = True
+        else:
+            new_line = False
+
+        # -- ad current text
         if lang == "he":
             html_table.append(f"<tr align='right'>")
         else:

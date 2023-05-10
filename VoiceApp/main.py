@@ -151,7 +151,9 @@ def schedule_preprocess_speech_job():
     #   Step 4: check if we have speech
     #
     if len(speech_timestamps) == 0:
+        extractVoiceProperties.processed_queue.put("\n")
         return
+    # TODO: if we didn't add "\n" add
 
     #
     #   Step 5: handle sub speech (no at the end edge)
@@ -282,19 +284,22 @@ def schedule_whisper_job():
         #
         for i in range(q_len):
             speech = extractVoiceProperties.processed_queue.get()
-            audio_data = {}
-            audio_data["wav"]       = [str(i) for i in speech.tolist()]
-            audio_data["prompt"]    = ["None"]
-            audio_data["languages"] = [None]
-            whisper_results         = whisperHandler.Get_Whisper_From_Server(audio_data)
-            text, language          = whisperHandler.filter_bad_results(whisper_results)
-            if text != "":
-                extractVoiceProperties.last_lang = language
-                extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, text, language)
-                logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}\n")
+            if speech == "\n":
+                extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, "\n", "he")
+            else:
+                audio_data = {}
+                audio_data["wav"]       = [str(i) for i in speech.tolist()]
+                audio_data["prompt"]    = ["None"]
+                audio_data["languages"] = [None]
+                whisper_results         = whisperHandler.Get_Whisper_From_Server(audio_data)
+                text, language          = whisperHandler.filter_bad_results(whisper_results)
+                if text != "":
+                    extractVoiceProperties.last_lang = language
+                    extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, text, language)
+                    logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}\n")
 
-            if extractVoiceProperties.settings_record_wav is True:
-                extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
+                if extractVoiceProperties.settings_record_wav is True:
+                    extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
 
     #
     #   Step 3: return results
