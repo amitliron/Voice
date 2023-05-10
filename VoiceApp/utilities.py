@@ -3,6 +3,7 @@ from huggingface_hub.hf_api            import HfFolder
 
 import soundfile                       as sf
 import librosa
+import logging
 
 def get_sample_rate(file):
     info      = mediainfo(file)
@@ -29,6 +30,6 @@ def convert_to_16sr_file(source_path, dest_path):
     return speech
 
 def save_huggingface_token():
-    print("Save hugging face token")
+    logging.info("Save hugging face token")
     MY_TOKEN = "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"
     HfFolder.save_token(MY_TOKEN)

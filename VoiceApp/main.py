@@ -1,3 +1,7 @@
+import logging
+logging.basicConfig(format='%(asctime)s :  %(message)s', level=logging.INFO)
+
+
 import os
 
 import pandas               as pd
@@ -10,8 +14,10 @@ DEBUG = True
 #if DEBUG is True:
 #os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+
 import gradio as gr
 import numpy as np
+import settings
 import time
 import whisper
 import torch
@@ -19,6 +25,7 @@ import librosa
 import pickle
 import queue
 import html_utils
+import diarizationHandler
 
 from fastapi                           import FastAPI
 from tqdm                              import tqdm
@@ -35,20 +42,9 @@ import datetime                        as dt
 
 
 
-
 class CExtractVoiceProperties:
 
     def __init__(self):
-        self.file_path     = None
-        self.DEVICE        = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print(f"Device = {self.DEVICE}")
-        if DEBUG is False:
-            #self.whisper_model = whisper.load_model("large", device=self.DEVICE)
-            self.sd_pipeline   = Pipeline.from_pretrained("pyannote/speaker-diarization")
-        else:
-            #self.whisper_model = whisper.load_model("tiny", device=self.DEVICE)
-            self.sd_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
-
         self.vad_model, vad_utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                                                         model='silero_vad',
                                                         force_reload=False)
@@ -82,7 +78,6 @@ class CExtractVoiceProperties:
         self.recordingUtil = RecordingUtil()
         self.stream_iter = 0
         self.diarization_text_result = ""
-        self.run_online = True
 
         self.speech_queue = queue.Queue()
         self.processed_queue = queue.Queue()
@@ -90,15 +85,11 @@ class CExtractVoiceProperties:
         self.previous_speech = None
         self.last_30_sec_vad = None
         self.total_num_of_vad_elm = 0
-        self.stream_results = ""
         self.last_speech_silence = False
         self.last_lang = ""
         self.all_texts = []
         self.html_result = ""
         self.last_vad_plot = None
-        self.debug_param   = 0
-        if DEBUG is False:
-            self.init()
 
     def clear(self):
         self.total_num_of_vad_elm = 0
@@ -114,45 +105,15 @@ class CExtractVoiceProperties:
         self.file_path = None
         self.diarization_text_result = ""
         self.stream_iter = 0
-
-        self.stream_results = ""
         self.last_lang = ""
         self.all_texts = []
         self.last_vad_plot = None
-        self.debug_param = 0
 
 
-    def init(self):
 
-        INIT_WAV = f"{os.getcwd()}/init.wav"
-
-        # if DEBUG is False:
-        #     print(f"Start init pyyanote ({datetime.now()})")
-        #     diarization_res = self.sd_pipeline(INIT_WAV)
-        #     print(f"Finish init pyyanote ({datetime.now()})")
-
-        # print(f"Start init Whisper ({datetime.now()})")
-        # res = self.Get_Whisper_Text(INIT_WAV)
-        # print(f"Finish init Whisper ({datetime.now()})")
-
-    # def Get_Whisper_Text(self,  file_name):
-    #
-    #     audio = whisper.load_audio(file_name)
-    #     audio = whisper.pad_or_trim(audio)
-    #     mel = whisper.log_mel_spectrogram(audio).to(self.whisper_model.device)
-    #
-    #     # decode the audio
-    #     options = whisper.DecodingOptions(beam_size=5, fp16=False)
-    #     result = whisper.decode(self.whisper_model, mel, options)
-    #     result = result.text
-    #
-    #     return result
-
-
-SAMPLE_RATE                  = 16000
 extractVoiceProperties       = CExtractVoiceProperties()
-SAVE_RESULTS_PATH            = f"{os.getcwd()}/TmpFiles"
-NO_SPEECH_PROBABILITY        = 0.6
+
+
 
 
 
@@ -202,8 +163,7 @@ def schedule_preprocess_speech_job():
             break
         tmp_speech = speech[start_sample:end_sample].numpy()
         extractVoiceProperties.processed_queue.put(tmp_speech)
-        print(
-            f"Push speech to whisper Q, audio length: {round(len(tmp_speech) / 16000, 2)} seconds, |Q| = {extractVoiceProperties.processed_queue.qsize()}")
+        logging.info(f"Push speech to whisper Q, audio length: {round(len(tmp_speech) / 16000, 2)} seconds, |Q| = {extractVoiceProperties.processed_queue.qsize()}")
 
 
     #
@@ -305,6 +265,9 @@ def add_new_whisper_results(all_results, text, lang, max_saved_results=20):
     all_results.append((text, lang))
     return all_results
 
+
+
+
 def schedule_whisper_job():
     global extractVoiceProperties
 
@@ -319,11 +282,16 @@ def schedule_whisper_job():
         #
         for i in range(q_len):
             speech = extractVoiceProperties.processed_queue.get()
-
-            text, lang, no_speech_prob       = whisperHandler.Get_Whisper_From_Server(speech)
-            extractVoiceProperties.last_lang = lang
-            extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, text, lang)
-            print(f"Got Results from Whisper:\n\tText: {text}\n\tLanguage: {lang}\n\tno_speech_prob = {no_speech_prob}")
+            audio_data = {}
+            audio_data["wav"]       = [str(i) for i in speech.tolist()]
+            audio_data["prompt"]    = ["None"]
+            audio_data["languages"] = [None]
+            whisper_results         = whisperHandler.Get_Whisper_From_Server(audio_data)
+            text, language          = whisperHandler.filter_bad_results(whisper_results)
+            if text != "":
+                extractVoiceProperties.last_lang = language
+                extractVoiceProperties.all_texts = add_new_whisper_results(extractVoiceProperties.all_texts, text, language)
+                logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}\n")
 
             if extractVoiceProperties.settings_record_wav is True:
                 extractVoiceProperties.recordingUtil.record_wav(speech, sample_rate=16000)
@@ -344,81 +312,7 @@ def show_saved_wav_file(wav_file_path):
     return wav_file_path
 
 
-def process_diarizartion_results(diarization, speech, whisper_model):
-    l_speakers_samples = []
-    l_text = []
-    l_speaker = []
-    language = None
 
-    for turn, _, speaker in tqdm(diarization.itertracks(yield_label=True)):
-        start_time = turn.start
-        end_time = turn.end
-        duration = end_time - start_time
-        if duration < 0.1:
-            continue
-
-        start_sample                   = int(start_time * SAMPLE_RATE)
-        end_sample                     = int(end_time * SAMPLE_RATE)
-        speaker_samples                = speech[start_sample:end_sample]
-        text, language, no_speech_prob = whisperHandler.Get_Whisper_Text(whisper_model, speaker_samples)
-        l_speakers_samples.append(speaker_samples)
-        l_speaker.append(speaker)
-        l_text.append(text)
-
-    return l_speakers_samples, l_speaker, l_text, language
-
-
-def prepare_text(l_text, l_speaker, language):
-    '''
-
-    :param l_text:         list of whisper text
-    :param l_speaker:      list of speakers
-    :param language:       language (he/en/...)
-    :return:               HTML page with language alignment.
-                           each speaker with different color
-    '''
-
-    if language == "he":
-        align = "right"
-    else:
-        align = "left"
-
-    text_results = ""
-    speaker_dict = {}
-    colors = ["red",  "blue", "green"]
-    for i, sp in enumerate(set(l_speaker)):
-        speaker_dict[sp] = colors[i]
-
-    for i in range(len(l_speaker)):
-        current_text = f"<p style='color:{speaker_dict[l_speaker[i]]}; text-align:{align};'> {l_speaker[i]} {l_text[i]} </p>" + "\n"
-        text_results = text_results + current_text
-    return text_results
-
-
-def save_results_to_file(html_res, fig_res):
-    with open(f"{SAVE_RESULTS_PATH}/html_res.txt", 'w') as file:
-        file.write(html_res)
-    fig_res.savefig(f"{SAVE_RESULTS_PATH}/fig_res.png")
-
-
-def myBinary(prob, onset):
-    '''
-    Note: I implement this method and didn't used  pyannote Binarize, for simple plot used
-    :param prob:        pyannote diarizartion results
-    :param onset:       threshold
-    :return:
-    '''
-    for i in range(len(prob)):
-        if prob[i] < onset:
-            prob[i] = None
-        else:
-            prob[i] = 0.5
-    return prob
-
-def get_vad_plot_from_diarization(wav_file):
-
-
-    return None
 
 def handle_wav_file(audioRecord, audioUpload):
     '''
@@ -442,50 +336,22 @@ def handle_wav_file(audioRecord, audioUpload):
     else:
         input_file = audioUpload
 
-    global extractVoiceProperties
-
-    if extractVoiceProperties.run_online is False:
-        with open(f"{SAVE_RESULTS_PATH}/html_res.txt", 'r') as file:
+    if settings.run_online_pyyannote is False:
+        with open(f"{settings.SAVE_RESULTS_PATH}/html_res.txt", 'r') as file:
             html_whisper_text = file.read()
 
         diarization_figure, ax = plt.subplots()
         import matplotlib.image as mpimg
-        img = mpimg.imread(f"{SAVE_RESULTS_PATH}/fig_res.png")
+        img = mpimg.imread(f"{settings.SAVE_RESULTS_PATH}/fig_res.png")
         ax.imshow(img)
         return html_whisper_text
 
     if (input_file is None):
-        print("Missing WAV file")
+        logging.info("Missing WAV file")
         return None
 
-    file_duration = utilities.get_wav_duration(input_file)
-    sample_rate   = utilities.get_sample_rate(input_file)
-    print(f"file_duration = {file_duration},  sample_rate = {sample_rate}")
 
-    if sample_rate != 16000:
-        print("Change sample rate to 16000")
-        utilities.convert_to_16sr_file(input_file, input_file)
-
-    print(f"Run Diarization pipeline ({datetime.now()})")
-    diarization_res = extractVoiceProperties.sd_pipeline(input_file)
-    print(f"Diarization pipeline Finished ({datetime.now()})")
-    print(f"process diarzation results ({datetime.now()})")
-    speech, sr = librosa.load(input_file, sr=SAMPLE_RATE)
-
-
-    res = process_diarizartion_results(diarization_res, speech, extractVoiceProperties.whisper_model)
-    print(f"process diarzation finished ({datetime.now()})")
-    l_speakers_samples = res[0]
-    l_speaker = res[1]
-    l_text = res[2]
-    language = res[3]
-
-    html_whisper_text      = prepare_text(l_text, l_speaker, language)
-    diarization_figure, ax = plt.subplots()
-    res                    = notebook.plot_annotation(diarization_res, ax=ax, time=True, legend=True)
-    save_results_to_file(html_whisper_text, diarization_figure)
-    vad_plot = get_vad_plot_from_diarization(diarization_res)
-
+    html_whisper_text = diarizationHandler.run_on_file(input_file)
 
     return html_whisper_text
 
@@ -510,11 +376,11 @@ def handle_streaming(audio):
     voice = int2float(voice)
 
     if extractVoiceProperties.MICROPHONE_SAMPLE_RATE is None:
-        print(f"MICROPHONE_SAMPLE_RATE = {rate}")
+        logging.info(f"MICROPHONE_SAMPLE_RATE = {rate}")
         extractVoiceProperties.MICROPHONE_SAMPLE_RATE = rate
 
     if rate != extractVoiceProperties.MICROPHONE_SAMPLE_RATE:
-        print(f"-sample rate changed: {extractVoiceProperties.MICROPHONE_SAMPLE_RATE} ->  {rate} - \n")
+        logging.info(f"-sample rate changed: {extractVoiceProperties.MICROPHONE_SAMPLE_RATE} ->  {rate} - \n")
         extractVoiceProperties.MICROPHONE_SAMPLE_RATE = rate
 
     extractVoiceProperties.vad_queue.put(voice)
@@ -523,15 +389,9 @@ def handle_streaming(audio):
 
 
 
-def set_running_option(value):
-    global extractVoiceProperties
-    if value == "Run Diariation Model":
-        extractVoiceProperties.run_online = True
-    else:
-        extractVoiceProperties.run_online = False
 
 def change_settings(settings_record_wav, settings_decoding_lang, settings_use_prompt):
-    print(f"Settings changed to: Reocrd Wav: {settings_record_wav}, Decoding Lang: {settings_decoding_lang}, Decoding Prompt:{settings_use_prompt}")
+    logging.info(f"Settings changed to: Reocrd Wav: {settings_record_wav}, Decoding Lang: {settings_decoding_lang}, Decoding Prompt:{settings_use_prompt}")
     global extractVoiceProperties
     extractVoiceProperties.settings_record_wav = settings_record_wav
     extractVoiceProperties.settings_use_prompt = settings_use_prompt
@@ -588,30 +448,16 @@ def create_gui():
                             outputs = [])
 
         demo.load(schedule_vad_job, None, [output_stream_plt], every=extractVoiceProperties.VAD_JOB_RATE)
-        demo.load(schedule_preprocess_speech_job, None, None, every=5)
+        demo.load(schedule_preprocess_speech_job, None, None, every=2)
         demo.load(schedule_whisper_job, None, [output_stream_lang, output_stream_text], every=1)
 
-        #set_running_option(False)
     return demo
 
 
 
-def debug_results():
-
-
-    #file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/3.wav"
-    file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/4.wav"
-    file = "/home/amitli/Downloads/Voice_Team/2023_5_4_15_17_33/11.wav"
-
-    y, sr = librosa.load(file, sr=16000)
-    print(f"len = {round(len(y)/16000, 2)}")
-    res = whisperHandler.Get_Whisper_From_Server(y)
-    print(res)
-
-
 
 if __name__ == "__main__":
-#    debug_results()
+
     utilities.save_huggingface_token()
     demo = create_gui()
     demo.queue().launch(share=False, debug=False)

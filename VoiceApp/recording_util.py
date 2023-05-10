@@ -3,7 +3,7 @@ import os
 import numpy as np
 from scipy.io.wavfile import write
 from pathlib import Path
-
+import logging
 
 class RecordingUtil():
 
@@ -11,7 +11,7 @@ class RecordingUtil():
         self._counter = 0
         current_time = datetime.datetime.now()
         self._recording_path = f"{os.path.expanduser('~')}/Downloads/Voice_Team/{current_time.year}_{current_time.month}_{current_time.day}_{current_time.hour}_{current_time.minute}_{current_time.second}"
-        print(f"[RecordingUtil] Create folder: {self._recording_path}")
+        logging.info(f"Create folder: {self._recording_path}")
         Path(self._recording_path).mkdir(parents=True, exist_ok=True)
 
 

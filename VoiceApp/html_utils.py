@@ -1,4 +1,4 @@
-
+import settings
 
 def convert_text_to_html(full_html, current_text, current_lang):
     '''
@@ -23,6 +23,7 @@ def build_html_table(all_results):
         else:
             html_table.append(f"<tr align='left'>")
         html_table.append(f"<td> {text}</td>")
+        html_table.append(f"<td> {settings.LANGUAGES[lang]} </td>")
         html_table.append("</tr>")
     html_table.append("</table>")
 
