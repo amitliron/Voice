@@ -172,8 +172,6 @@ def schedule_vad_job():
 
 
 
-
-
 def add_new_whisper_results(all_results, text, lang, max_saved_results=10):
 
     if len(all_results) >= max_saved_results:
@@ -182,37 +180,69 @@ def add_new_whisper_results(all_results, text, lang, max_saved_results=10):
     return all_results
 
 
+def get_text(speech):
+    audio_data = {}
+    audio_data["wav"] = [str(ii) for ii in speech.tolist()]
+    audio_data["prompt"] = ["None"]
+    audio_data["languages"] = [None]
+    whisper_results = whisperHandler.Get_Whisper_From_Server(audio_data)
+    text, language = whisperHandler.filter_bad_results(whisper_results)
+    if text != "":
+        global_parameters.last_lang = language
+        global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, text, language)
+        logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}")
 
+    if settings.record_to_wav is True:
+        global_parameters.recordingUtil.record_wav(speech, sample_rate=16000)
 
 def schedule_whisper_job():
 
     #
     #   Step 1: get current Q len (number of speech to decode with whisper)
     #
-    q_len = global_parameters.processed_queue.qsize()
+    last_speech = []
+    q_len       = global_parameters.processed_queue.qsize()
+
     if q_len != 0:
+        while (global_parameters.processed_queue.qsize() > 0):
+            speech      = global_parameters.processed_queue.get()
+
+            if speech == "\n":
+                if len(last_speech) > 0:
+                    get_text(last_speech)
+                    last_speech = []
+                global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, "\n", "he")
+            else:
+                last_speech = np.concatenate((last_speech, speech))
+
+    if len(last_speech) > 0:
+        get_text(last_speech)
 
         #
         #   Step 2: for each speech -> decode with whisper
         #
-        for i in range(q_len):
-            speech = global_parameters.processed_queue.get()
-            if speech == "\n":
-                global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, "\n", "he")
-            else:
-                audio_data = {}
-                audio_data["wav"]       = [str(i) for i in speech.tolist()]
-                audio_data["prompt"]    = ["None"]
-                audio_data["languages"] = [None]
-                whisper_results         = whisperHandler.Get_Whisper_From_Server(audio_data)
-                text, language          = whisperHandler.filter_bad_results(whisper_results)
-                if text != "":
-                    global_parameters.last_lang = language
-                    global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, text, language)
-                    logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}")
-
-                if settings.record_to_wav is True:
-                    global_parameters.recordingUtil.record_wav(speech, sample_rate=16000)
+        # for i in range(q_len):
+        #     speech = global_parameters.processed_queue.get()
+        #
+        #     #
+        #     #   2.1 if at least X seconds of silence -> add new line
+        #     #
+        #     if speech == "\n":
+        #         global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, "\n", "he")
+        #     else:
+        #         audio_data = {}
+        #         audio_data["wav"]       = [str(ii) for ii in speech.tolist()]
+        #         audio_data["prompt"]    = ["None"]
+        #         audio_data["languages"] = [None]
+        #         whisper_results         = whisperHandler.Get_Whisper_From_Server(audio_data)
+        #         text, language          = whisperHandler.filter_bad_results(whisper_results)
+        #         if text != "":
+        #             global_parameters.last_lang = language
+        #             global_parameters.all_texts = add_new_whisper_results(global_parameters.all_texts, text, language)
+        #             logging.info(f"Got Good Results from Whisper, Text: {text} \tLanguage: {language}")
+        #
+        #         if settings.record_to_wav is True:
+        #             global_parameters.recordingUtil.record_wav(speech, sample_rate=16000)
 
     #
     #   Step 3: return results
