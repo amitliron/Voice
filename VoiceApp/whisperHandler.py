@@ -58,6 +58,12 @@ def use_local_whisper(audio_data):
 
 def filter_bad_results(whisper_results):
 
+    if settings.FILTER_BAD_RESULUS is False:
+        language = whisper_results.language
+        text     = whisper_results.text
+        return text, language
+
+
     #
     #   step 1: parse results
     #
