@@ -198,10 +198,10 @@ def add_new_whisper_results(all_results, text, lang):
            else:
                all_results[-1] = (text, lang)
 
-    if text == "\n":
-        logging.info(f"got: NEW LINE, final all_results = {all_results}")
-    else:
-        logging.info(f"got: {text}, final all_results = {all_results}")
+    # if text == "\n":
+    #     logging.info(f"got: NEW LINE, final all_results = {all_results}")
+    # else:
+    #     logging.info(f"got: {text}, final all_results = {all_results}")
     return all_results
 
 
