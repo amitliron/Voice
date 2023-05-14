@@ -184,7 +184,7 @@ def schedule_vad_job():
 
 
 
-def add_new_whisper_results(all_results, text, lang, max_saved_results=10):
+def add_new_whisper_results(all_results, text, lang):
 
     if len(all_results) == 0:
         all_results.append((text, lang))
@@ -203,43 +203,6 @@ def add_new_whisper_results(all_results, text, lang, max_saved_results=10):
     else:
         logging.info(f"got: {text}, final all_results = {all_results}")
     return all_results
-
-    # #
-    # #   step 1: add results. if we have old (part fo speech) -> replace it with new speech text
-    # #
-    # total_num_of_lines = 0
-    # tmp_all_results    = []
-    # all_results.append((text, lang))
-    # prev_text = None
-    # prev_lang = None
-    # for val_text, val_lang in reversed(all_results):
-    #     if val_text == "\n":
-    #
-    #         # safty -> add "\n" just once
-    #         if len(tmp_all_results) > 0:
-    #             if tmp_all_results[-1][0] == "\n":
-    #                 continue
-    #
-    #         if prev_text != None:
-    #             # add the last speech results (which contain the final results)
-    #             total_num_of_lines = total_num_of_lines + 1
-    #             tmp_all_results.append((prev_text, prev_lang))
-    #         # add the new line (used later for post html processing)
-    #         tmp_all_results.append(("\n", "he"))
-    #     else:
-    #         prev_text = val_text
-    #         prev_lang = val_lang
-    #
-    #     if total_num_of_lines >= max_saved_results:
-    #         break
-    # if val_text != "\n":
-    #     tmp_all_results.append((val_text, val_lang))
-    # tmp_all_results.reverse()
-    # all_results = tmp_all_results
-    #
-    # logging.info(f"all_results = {all_results}")
-    # return all_results
-
 
 
 def schedule_whisper_job():

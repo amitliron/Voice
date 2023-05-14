@@ -12,6 +12,7 @@ DEVICE             = torch.device("cuda:0" if torch.cuda.is_available() else "cp
 SAMPLE_RATE        = 16000
 SAVE_RESULTS_PATH  = f"{os.getcwd()}/TmpFiles"
 record_to_wav      = False
+MAX_SAVED_RESULTS  = 5
 
 
 
