@@ -36,7 +36,7 @@ use_language                = None
 #
 #   local whisper
 #
-RUN_LOCAL_WHISPER = True
+RUN_LOCAL_WHISPER = False
 whisper_model     = None
 
 #

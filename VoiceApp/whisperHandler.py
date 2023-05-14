@@ -52,15 +52,23 @@ def use_local_whisper(audio_data):
                                               prompt     = audio_data["prompt"][0],
                                               sample_len = 100)
     result          = whisper.decode(settings.whisper_model, mel, options)
-    return result
+
+    whisper_results = {}
+    whisper_results['language']          = result.language
+    whisper_results["text"]              = result.text
+    whisper_results["no_speech_prob"]    = result.no_speech_prob
+    whisper_results["avg_logprob"]       = result.avg_logprob
+    whisper_results["compression_ratio"] = result.compression_ratio
+
+    return whisper_results
 
 
 
 def filter_bad_results(whisper_results):
 
     if settings.FILTER_BAD_RESULUS is False:
-        language = whisper_results.language
-        text     = whisper_results.text
+        language = whisper_results["language"]
+        text     = whisper_results["text"]
         return text, language
 
 
