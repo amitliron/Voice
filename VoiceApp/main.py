@@ -15,6 +15,7 @@ import gradio as gr
 import numpy as np
 import settings
 import torch
+import whisper
 import librosa
 import html_utils
 import diarizationHandler
@@ -245,6 +246,54 @@ def schedule_whisper_job():
 
 
 
+def handle_offline_single_speech(audioRecord, audioUpload):
+
+    #
+    #   step 1: check if input is valid
+    #
+    logging.info("User choose to work with offline whisper")
+    if (audioRecord is None) and (audioUpload is None):
+        res = "<p style='color:red; text-align:left;'> Input is missing </p>"
+        return res
+
+    if (audioRecord is not None) and (audioUpload is not None):
+        res = "<p style='color:red; text-align:left;'> Two inputs are selected, choose one of them </p>"
+        return res
+
+    filePath = audioRecord
+    if audioRecord is None:
+        filePath = audioUpload
+
+    #
+    #   step 2: prepare input to whisper server
+    #
+    logging.info("Prepare wav file to whisper server")
+    audio = whisper.load_audio(filePath)
+    audio_data = {}
+    audio_data["wav"]       = [str(ii) for ii in audio.tolist()]
+    audio_data["prompt"]    = ["None"]
+    audio_data["languages"] = [None]
+    whisper_results = whisperHandler.Get_Whisper_From_Server(audio_data)
+
+    #
+    #   step 3: get whisper results
+    #
+    language  = whisper_results['language']
+    text      = whisper_results["text"]
+
+    #
+    #   step 4: prepare html
+    #
+    logging.info("Prepare HTML results")
+    all_texts = []
+    all_texts = add_new_whisper_results(all_texts, text, language)
+    html_text = html_utils.build_html_table(all_texts)
+    html_text = ''.join(html_text)
+    return html_text
+
+
+
+
 
 def handle_wav_file(audioRecord, audioUpload):
     '''
@@ -352,16 +401,15 @@ def create_gui():
             output_stream_text = gr.outputs.HTML(label="Whisper Results:")
             output_stream_plt  = gr.Plot(labal = "Voice Activity Detection:")
 
-        with gr.Tab("Offline"):
+        with gr.Tab("Whisper Offline"):
             with gr.Row():
                 audioUpload = gr.Audio(source="upload", type="filepath")
                 audioRecord = gr.Audio(source="microphone", type="filepath")
 
             audioProcessRecButton = gr.Button("Process")
-            output_diarization_text = gr.outputs.HTML(label="")
-            #output_diarization_img = gr.Plot(label = "Diarization")
-            audioProcessRecButton.click(fn=handle_wav_file, inputs=[audioRecord, audioUpload],
-                                        outputs=[output_diarization_text])
+            output_offline_text   = gr.outputs.HTML(label="")
+            audioProcessRecButton.click(fn=handle_offline_single_speech, inputs=[audioRecord, audioUpload],
+                                        outputs=[output_offline_text])
 
         with gr.Tab("Settings"):
             settings_record_wav = gr.Checkbox(label="Record WAV", info="Record WAV files for debug")

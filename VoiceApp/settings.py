@@ -22,6 +22,7 @@ MAX_SAVED_RESULTS  = 5
 RAMBO_IP           = "10.53.140.33:86"
 SERVER_IP          = RAMBO_IP
 WHISPER_URL        = f'http://{SERVER_IP}/gradio_demo_live/'
+#WHISPER_URL        = f'http://10.53.140.230:8123/relay/'
 LANGUAGES          = whisper.tokenizer.LANGUAGES
 FILTER_BAD_RESULUS = False
 
